@@ -130,3 +130,38 @@
   }
 }
 
+@layer components {
+  .pdf-export-root {
+    position: fixed;
+    top: 0;
+    left: -20000px;
+    width: 1122px;
+    z-index: -1;
+    background: #ffffff;
+    pointer-events: none;
+  }
+
+  .pdf-page {
+    width: 1122px;
+    min-height: 1587px;
+    max-height: 1587px;
+    padding: 56px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .pdf-page + .pdf-page {
+    margin-top: 32px;
+  }
+
+  .pdf-export-chart-lg {
+    height: 420px;
+    width: 100%;
+  }
+
+  .pdf-export-chart-sm {
+    height: 280px;
+    width: 100%;
+  }
+}
+

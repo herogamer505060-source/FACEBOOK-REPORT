@@ -243,6 +243,96 @@ const SectionHeader = ({ title, subtitle }: { title: string, subtitle?: string }
 
 const AI_ANALYZE_ENDPOINT = '/api/analyze-report';
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+const PDF_PAGE_WIDTH_PX = 1122;
+const PDF_PAGE_HEIGHT_PX = 1587;
+const PDF_PROJECT_ROWS_PER_PAGE = 9;
+const PDF_CAMPAIGN_ROWS_PER_PAGE = 10;
+const PDF_RENDER_WAIT_MS = 300;
+
+type TranslationSet = typeof translations.en;
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) {
+    return [[] as T[]];
+  }
+
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function formatCurrency(value: number): string {
+  return `EGP ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatMetric(value: number, suffix = ''): string {
+  return `${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}${suffix}`;
+}
+
+const ExportMetricCard = ({
+  label,
+  value,
+  note,
+  toneClass,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  toneClass: string;
+}) => (
+  <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-sm">
+    <div className={cn("inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]", toneClass)}>
+      {label}
+    </div>
+    <div className="mt-4 text-[31px] font-bold tracking-tight text-slate-900">{value}</div>
+    <p className="mt-2 text-sm leading-6 text-slate-500">{note}</p>
+  </div>
+);
+
+const ExportPage = ({
+  title,
+  subtitle,
+  reportDate,
+  pageNumber,
+  totalPages,
+  isRtl,
+  footer,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  reportDate: string;
+  pageNumber: number;
+  totalPages: number;
+  isRtl: boolean;
+  footer: string;
+  children: React.ReactNode;
+}) => (
+  <section data-pdf-page="true" className={cn("pdf-page flex flex-col gap-8 bg-white text-slate-900", isRtl ? "font-arabic" : "")} dir={isRtl ? 'rtl' : 'ltr'}>
+    <div className="flex items-start justify-between gap-8 border-b border-slate-200 pb-6">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-600">
+          {isRtl ? 'تصدير التقرير' : 'Report Export'}
+        </p>
+        <h1 className="mt-3 text-[36px] font-bold tracking-tight text-slate-900">{title}</h1>
+        <p className="mt-2 max-w-[640px] text-sm leading-6 text-slate-500">{subtitle}</p>
+      </div>
+
+      <div className={cn("min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm leading-6 text-slate-500", isRtl ? 'text-left' : 'text-right')}>
+        <p className="font-semibold text-slate-700">{reportDate}</p>
+        <p>{isRtl ? `صفحة ${pageNumber} من ${totalPages}` : `Page ${pageNumber} of ${totalPages}`}</p>
+      </div>
+    </div>
+
+    <div className="flex-1">{children}</div>
+
+    <div className="border-t border-slate-200 pt-4 text-sm text-slate-400">{footer}</div>
+  </section>
+);
 
 const getCampaignProjectName = (campaign: Campaign, projectNames: string[]) => {
   return campaign.project || inferProjectFromName(campaign.name, projectNames) || '';
@@ -264,10 +354,11 @@ export default function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>(INITIAL_CAMPAIGNS);
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   const [isEditingBudget, setIsEditingBudget] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dashboardRef = useRef<HTMLDivElement>(null);
+  const pdfExportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (selectedProject !== 'all' && !projects.some((project) => project.name === selectedProject)) {
@@ -288,75 +379,86 @@ export default function App() {
     return getCampaignProjectName(campaign, projectNames) === selectedProject;
   });
 
+  const totalProjectSpend = projects.reduce((sum, project) => sum + project.estimated + project.vat, 0);
+  const projectVarianceFromBilling = totalProjectSpend - financials.totalBilled;
+  const projectSpendMatchesBilling = Math.abs(projectVarianceFromBilling) < 0.05;
+  const projectTableChunks: ProjectData[][] = chunkItems(projects, PDF_PROJECT_ROWS_PER_PAGE);
+  const projectPrimaryChunk = projectTableChunks[0] ?? [];
+  const projectOverflowChunks = projectTableChunks.slice(1);
+  const campaignTableChunks: Campaign[][] = chunkItems(campaigns, PDF_CAMPAIGN_ROWS_PER_PAGE);
+  const totalPdfPages = 3 + projectOverflowChunks.length + campaignTableChunks.length;
+  const campaignPageStart = 3 + projectOverflowChunks.length;
+  const auditPageNumber = campaignPageStart + campaignTableChunks.length;
+  const strengthItems = [
+    isRtl ? 'حسابات إعلانية مزدوجة: يقلل من مخاطر توقف الحملات بالكامل.' : 'Dual Ad Accounts: Redundancy reduces risk of total campaign shutdown.',
+    isRtl ? 'تفاعل عالٍ: تحقق الحملات الرئيسية صدى إبداعياً ممتازاً مع معدل نقر > 4%.' : 'High Engagement: Top campaigns show excellent creative resonance with >4% CTR.',
+    isRtl ? 'تنوع الأهداف: مزيج متوازن بين الوعي وجذب العملاء المحتملين.' : 'Objective Diversity: Balanced mix between Awareness and Lead Gen.',
+    isRtl ? 'كفاءة التكلفة: تكلفة منخفضة للنقرة في المجموعات الأعلى أداءً.' : 'Cost Efficiency: Low CPC on top-performing sets.',
+  ];
+  const weaknessItems = [
+    isRtl
+      ? `فجوة التمويل: ${formatCurrency(financials.fundingGap)} من الفواتير الحالية غير مغطاة بأموال المحفظة.`
+      : `Funding Gap: ${formatCurrency(financials.fundingGap)} of current billing is not covered by wallet funds.`,
+    isRtl ? 'فجوات البيانات: نقص بيانات ROAS/CPL يمنع التقييم الكامل للعائد.' : 'Data Gaps: Missing ROAS/CPL data prevents full ROI assessment.',
+    isRtl ? 'إجهاد إبداعي: تظهر بعض حملات الوعي علامات انخفاض في التفاعل.' : 'Creative Fatigue: Some awareness campaigns showing signs of low interaction.',
+    isRtl ? 'اختلاف التقارير: تباين محتمل بين تقارير الميزانية والصادرات.' : 'Reporting Discrepancy: Potential variance between budget reports and exports.',
+  ];
+
   const handleExportPDF = async () => {
-    if (!dashboardRef.current) return;
     setIsProcessing(true);
-    setUploadStatus(isRtl ? "جاري تصدير التقرير..." : "Exporting report...");
+    setIsPreparingPdf(true);
+    setUploadStatus(isRtl ? 'جاري تجهيز صفحات التقرير...' : 'Preparing report pages for export...');
 
     try {
-      // Create a temporary container for PDF rendering to ensure fixed layout
-      const element = dashboardRef.current;
-      const originalStyle = element.style.width;
-      element.style.width = '1200px'; // Fixed width for consistent PDF layout
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#f8fafc',
-        windowWidth: 1200,
-        onclone: (clonedDoc) => {
-          const clonedElement = clonedDoc.getElementById('dashboard-content');
-          if (clonedElement) {
-            clonedElement.style.width = '1200px';
-          }
-          const style = clonedDoc.createElement('style');
-          style.innerHTML = `
-            * { 
-              border-color: #e2e8f0 !important; 
-              outline-color: #e2e8f0 !important;
-              ring-color: #3b82f6 !important;
-              background-image: none !important;
-              -webkit-print-color-adjust: exact;
-            }
-            .no-print { display: none !important; }
-            .chart-container { page-break-inside: avoid; }
-          `;
-          clonedDoc.head.appendChild(style);
-        }
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
       });
-      
-      element.style.width = originalStyle;
+      await new Promise((resolve) => setTimeout(resolve, PDF_RENDER_WAIT_MS));
+      await (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts?.ready;
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pages = Array.from(pdfExportRef.current?.querySelectorAll<HTMLElement>('[data-pdf-page="true"]') ?? []) as HTMLElement[];
+
+      if (pages.length === 0) {
+        throw new Error(isRtl ? 'تعذر تجهيز صفحات التقرير.' : 'Unable to prepare report pages.');
+      }
+
+      setUploadStatus(isRtl ? 'جاري إنشاء ملف PDF...' : 'Building PDF file...');
+
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
 
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
+      for (const [index, page] of pages.entries()) {
+        const canvas = await html2canvas(page, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          width: page.scrollWidth,
+          height: page.scrollHeight,
+          windowWidth: page.scrollWidth,
+          windowHeight: page.scrollHeight,
+        });
 
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
+        if (index > 0) {
+          pdf.addPage();
+        }
+
+        const imgData = canvas.toDataURL('image/png');
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
       }
 
       pdf.save(`Marketing-Financial-Report-${new Date().toISOString().split('T')[0]}.pdf`);
-      
-      setUploadStatus(isRtl ? "تم التصدير بنجاح!" : "Exported successfully!");
+
+      setUploadStatus(isRtl ? 'تم تصدير التقرير بجودة أفضل!' : 'Report exported with improved layout!');
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
-      console.error("PDF Export Error:", error);
-      setUploadStatus(isRtl ? "خطأ في التصدير" : "Export error");
+      console.error('PDF Export Error:', error);
+      setUploadStatus(error instanceof Error ? error.message : (isRtl ? 'خطأ في التصدير' : 'Export error'));
     } finally {
+      setIsPreparingPdf(false);
       setIsProcessing(false);
     }
   };
@@ -515,7 +617,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" ref={dashboardRef} id="dashboard-content">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" id="dashboard-content">
         {/* Status Notification */}
         <AnimatePresence>
           {uploadStatus && (
@@ -901,12 +1003,7 @@ export default function App() {
               <div className="space-y-6">
                 <SectionHeader title={t.strengths} />
                 <div className="space-y-4">
-                  {[
-                    isRtl ? "حسابات إعلانية مزدوجة: يقلل من مخاطر توقف الحملات بالكامل." : "Dual Ad Accounts: Redundancy reduces risk of total campaign shutdown.",
-                    isRtl ? "تفاعل عالٍ: تحقق الحملات الرئيسية صدى إبداعياً ممتازاً مع معدل نقر > 4%." : "High Engagement: Top campaigns show excellent creative resonance with >4% CTR.",
-                    isRtl ? "تنوع الأهداف: مزيج متوازن بين الوعي وجذب العملاء المحتملين." : "Objective Diversity: Balanced mix between Awareness and Lead Gen.",
-                    isRtl ? "كفاءة التكلفة: تكلفة منخفضة للنقرة في المجموعات الأعلى أداءً." : "Cost Efficiency: Low CPC on top-performing sets."
-                  ].map((item, i) => (
+                  {strengthItems.map((item, i) => (
                     <div key={i} className="flex gap-3 p-4 bg-[rgba(236,253,245,0.5)] border border-emerald-100 rounded-xl">
                       <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                       <p className="text-sm text-emerald-800">{item}</p>
@@ -918,12 +1015,7 @@ export default function App() {
               <div className="space-y-6">
                 <SectionHeader title={t.weaknesses} />
                 <div className="space-y-4">
-                  {[
-                    isRtl ? `فجوة التمويل: EGP ${financials.fundingGap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} من الفواتير الحالية غير مغطاة بأموال المحفظة.` : `Funding Gap: EGP ${financials.fundingGap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of current billing is not covered by wallet funds.`,
-                    isRtl ? "فجوات البيانات: نقص بيانات ROAS/CPL يمنع التقييم الكامل للعائد." : "Data Gaps: Missing ROAS/CPL data prevents full ROI assessment.",
-                    isRtl ? "إجهاد إبداعي: تظهر بعض حملات الوعي علامات انخفاض في التفاعل." : "Creative Fatigue: Some awareness campaigns showing signs of low interaction.",
-                    isRtl ? "اختلاف التقارير: تباين محتمل بين تقارير الميزانية والصادرات." : "Reporting Discrepancy: Potential variance between budget reports and exports."
-                  ].map((item, i) => (
+                  {weaknessItems.map((item, i) => (
                     <div key={i} className="flex gap-3 p-4 bg-[rgba(255,241,242,0.5)] border border-rose-100 rounded-xl">
                       <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
                       <p className="text-sm text-rose-800">{item}</p>
@@ -941,6 +1033,333 @@ export default function App() {
         <p>{t.footer}</p>
         <p className="hidden sm:block">{t.reportDate}</p>
       </footer>
+
+      {isPreparingPdf && (
+        <div ref={pdfExportRef} className="pdf-export-root" aria-hidden="true">
+          <ExportPage
+            title={t.title}
+            subtitle={isRtl ? 'نسخة PDF منظمة للقراءة والطباعة تتضمن الملخص المالي والمؤشرات الأساسية.' : 'A structured PDF layout for printing with the main financial summary and core performance indicators.'}
+            reportDate={t.reportDate}
+            pageNumber={1}
+            totalPages={totalPdfPages}
+            isRtl={isRtl}
+            footer={t.footer}
+          >
+            <div className="flex h-full flex-col gap-6">
+              <div className="grid grid-cols-2 gap-5">
+                <ExportMetricCard label={t.totalBilled} value={formatCurrency(financials.totalBilled)} note={t.vatIncluded} toneClass="bg-blue-50 text-blue-700" />
+                <ExportMetricCard label={t.fundsAdded} value={formatCurrency(financials.fundsAdded)} note={t.prepaid} toneClass="bg-emerald-50 text-emerald-700" />
+                <ExportMetricCard label={t.actualLabel} value={formatCurrency(financials.netSpend)} note={t.metaLabel} toneClass="bg-slate-100 text-slate-700" />
+                <ExportMetricCard label={t.fundingGap} value={formatCurrency(financials.fundingGap)} note={t.uncovered} toneClass="bg-rose-50 text-rose-700" />
+              </div>
+
+              <div className="grid flex-1 grid-cols-[1.7fr_1fr] gap-6">
+                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <SectionHeader title={t.dailyMovement} subtitle={t.billedVsTopup} />
+                  <div className="pdf-export-chart-lg">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={dailyData} margin={{ top: 10, right: isRtl ? 36 : 12, left: isRtl ? 12 : 36, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} interval={0} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} orientation={isRtl ? 'right' : 'left'} />
+                        <Tooltip contentStyle={{ borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15,23,42,0.08)', backgroundColor: '#ffffff', color: '#0f172a' }} />
+                        <Legend verticalAlign="top" align={isRtl ? 'left' : 'right'} iconType="circle" wrapperStyle={{ paddingBottom: '16px' }} />
+                        <Bar name={t.billedLabel} dataKey="billed" fill="#2563eb" radius={[8, 8, 0, 0]} isAnimationActive={false} />
+                        <Line name={t.topupLabel} type="monotone" dataKey="topup" stroke="#059669" strokeWidth={3} dot={{ r: 4, fill: '#059669' }} isAnimationActive={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-6">
+                  <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                    <SectionHeader title={t.objectives} subtitle={t.spendByGoal} />
+                    <div className="space-y-5">
+                      {objectives.map((objective) => (
+                        <div key={`pdf-objective-${objective.name}`} className="space-y-2">
+                          <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
+                            <div className="flex items-center gap-3">
+                              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: objective.color }} />
+                              <span>{objective.name}</span>
+                            </div>
+                            <span>{formatMetric(objective.value, '%')}</span>
+                          </div>
+                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                            <div className="h-full rounded-full" style={{ backgroundColor: objective.color, width: `${Math.max(objective.value, 8)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 rounded-[28px] border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t.vatAmount}</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(financials.vat)}</p>
+                    </div>
+                    <div className="border-t border-slate-200 pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t.coverage}</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{formatMetric(financials.coveragePercent, '%')}</p>
+                      <p className="mt-2 text-sm text-slate-500">{t.ratio}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ExportPage>
+
+          <ExportPage
+            title={t.projects}
+            subtitle={isRtl ? 'ملخص توزيع الميزانية الفعلية مقابل ميزانيات المشاريع الداخلية مع جدول واضح بدون تداخل.' : 'A clean project allocation summary comparing internal budgets against Meta costs.'}
+            reportDate={t.reportDate}
+            pageNumber={2}
+            totalPages={totalPdfPages}
+            isRtl={isRtl}
+            footer={t.footer}
+          >
+            <div className="flex h-full flex-col gap-6">
+              <div className="grid grid-cols-[1.6fr_1fr] gap-6">
+                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <SectionHeader title={t.projectAllocation} subtitle={t.internalVsMeta} />
+                  <div className="pdf-export-chart-lg">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={projects} layout="vertical" margin={{ top: 4, right: isRtl ? 36 : 12, left: isRtl ? 12 : 36, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                        <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} orientation={isRtl ? 'right' : 'left'} width={130} />
+                        <Tooltip contentStyle={{ borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15,23,42,0.08)', backgroundColor: '#ffffff', color: '#0f172a' }} />
+                        <Legend verticalAlign="top" iconType="circle" wrapperStyle={{ paddingBottom: '16px' }} />
+                        <Bar name={t.internalLabel} dataKey="internal" fill="#94a3b8" radius={[0, 8, 8, 0]} isAnimationActive={false} />
+                        <Bar name={t.metaLabel} dataKey="estimated" fill="#2563eb" radius={[0, 8, 8, 0]} isAnimationActive={false} />
+                        <Bar name={t.vatAmount} dataKey="vat" fill="#f59e0b" radius={[0, 8, 8, 0]} isAnimationActive={false} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t.totalProjectSpend}</p>
+                    <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{formatCurrency(totalProjectSpend)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                    <p className={cn('text-sm font-semibold', projectSpendMatchesBilling ? 'text-emerald-700' : 'text-amber-700')}>
+                      {projectSpendMatchesBilling ? (isRtl ? 'متطابق مع فاتورة ميتا' : 'Matches Meta billing') : (isRtl ? 'يوجد فرق يحتاج مراجعة' : 'Discrepancy needs review')}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">{t.reconciliationNote}</p>
+                    <p className="mt-3 text-lg font-bold text-slate-900">{formatCurrency(Math.abs(projectVarianceFromBilling))}</p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4 text-sm leading-6 text-blue-900">
+                    {isRtl ? 'تم تقسيم الجدول على صفحات مستقلة لتفادي التزاحم داخل ملف PDF.' : 'The table is split across dedicated pages to keep the PDF readable and avoid overlapping content.'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-900">{isRtl ? 'جدول المشاريع' : 'Project Budget Table'}</h3>
+                  <p className="text-sm text-slate-500">{projectPrimaryChunk.length} {isRtl ? 'صفوف في هذه الصفحة' : 'rows on this page'}</p>
+                </div>
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.projectName}</th>
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.internalBudget}</th>
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.metaLabel}</th>
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.vatAmount}</th>
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.share}</th>
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
+                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.budgetStatus}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projectPrimaryChunk.map((project) => {
+                      const totalActual = project.estimated + project.vat;
+                      const variance = project.internal - totalActual;
+                      const isOver = variance < 0;
+
+                      return (
+                        <tr key={`pdf-project-${project.name}`} className="border-b border-slate-100 align-top">
+                          <td className={cn('px-4 py-4 font-semibold text-slate-900', isRtl ? 'text-right' : 'text-left')}>{project.name}</td>
+                          <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(project.internal)}</td>
+                          <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(project.estimated)}</td>
+                          <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(project.vat)}</td>
+                          <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatMetric(project.share, '%')}</td>
+                          <td className={cn('px-4 py-4 font-semibold text-slate-900', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(totalActual)}</td>
+                          <td className={cn('px-4 py-4', isRtl ? 'text-left' : 'text-right')}>
+                            <span className={cn('inline-flex rounded-full px-3 py-1 text-xs font-semibold', isOver ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700')}>
+                              {isOver ? t.overBudget : t.withinBudget}
+                            </span>
+                            <p className="mt-2 text-xs text-slate-400">{formatCurrency(Math.abs(variance))}</p>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </ExportPage>
+
+          {projectOverflowChunks.map((chunk, index) => (
+            <React.Fragment key={`project-overflow-${index}`}>
+              <ExportPage
+                title={t.projects}
+                subtitle={isRtl ? 'تكملة جدول المشاريع موزعة على صفحات منفصلة للحفاظ على الوضوح.' : 'Continued project table split onto standalone pages for better readability.'}
+                reportDate={t.reportDate}
+                pageNumber={3 + index}
+                totalPages={totalPdfPages}
+                isRtl={isRtl}
+                footer={t.footer}
+              >
+                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">{isRtl ? 'استكمال المشاريع' : 'Project Table Continued'}</h3>
+                    <p className="text-sm text-slate-500">{chunk.length} {isRtl ? 'صفوف' : 'rows'}</p>
+                  </div>
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.projectName}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.internalBudget}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.metaLabel}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.vatAmount}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.budgetStatus}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chunk.map((project) => {
+                        const totalActual = project.estimated + project.vat;
+                        const variance = project.internal - totalActual;
+                        const isOver = variance < 0;
+
+                        return (
+                          <tr key={`pdf-project-overflow-${project.name}`} className="border-b border-slate-100 align-top">
+                            <td className={cn('px-4 py-4 font-semibold text-slate-900', isRtl ? 'text-right' : 'text-left')}>{project.name}</td>
+                            <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(project.internal)}</td>
+                            <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(project.estimated)}</td>
+                            <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(project.vat)}</td>
+                            <td className={cn('px-4 py-4 font-semibold text-slate-900', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(totalActual)}</td>
+                            <td className={cn('px-4 py-4', isRtl ? 'text-left' : 'text-right')}>
+                              <span className={cn('inline-flex rounded-full px-3 py-1 text-xs font-semibold', isOver ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700')}>
+                                {isOver ? t.overBudget : t.withinBudget}
+                              </span>
+                              <p className="mt-2 text-xs text-slate-400">{formatCurrency(Math.abs(variance))}</p>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </ExportPage>
+            </React.Fragment>
+          ))}
+
+          {campaignTableChunks.map((chunk, index) => (
+            <React.Fragment key={`campaign-page-${index}`}>
+              <ExportPage
+                title={t.campaignAudit}
+                subtitle={isRtl ? 'جدول حملات واضح مع تقسيم الصفوف على صفحات مستقلة حتى يظل قابلًا للقراءة.' : 'A paginated campaign audit table so each exported page stays readable.'}
+                reportDate={t.reportDate}
+                pageNumber={campaignPageStart + index}
+                totalPages={totalPdfPages}
+                isRtl={isRtl}
+                footer={t.footer}
+              >
+                <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-4 flex items-center justify-between gap-4">
+                    <h3 className="text-lg font-bold text-slate-900">{t.campaignAudit}</h3>
+                    <p className="text-sm text-slate-500">{chunk.length} {isRtl ? 'حملات في هذه الصفحة' : 'campaigns on this page'}</p>
+                  </div>
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.campaign}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.projects}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.account}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.spend}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
+                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.ctr}</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t.status}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chunk.map((campaign) => (
+                        <tr key={`pdf-campaign-${campaign.name}`} className="border-b border-slate-100 align-top">
+                          <td className={cn('px-4 py-4 font-semibold leading-6 text-slate-900', isRtl ? 'text-right' : 'text-left')}>{campaign.name}</td>
+                          <td className={cn('px-4 py-4 text-slate-500', isRtl ? 'text-right' : 'text-left')}>{getCampaignProjectName(campaign, projectNames) || '—'}</td>
+                          <td className={cn('px-4 py-4 text-slate-500', isRtl ? 'text-right' : 'text-left')}>{campaign.account}</td>
+                          <td className={cn('px-4 py-4 font-semibold text-slate-700', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(campaign.spend)}</td>
+                          <td className={cn('px-4 py-4 font-semibold text-blue-700', isRtl ? 'text-left' : 'text-right')}>{formatCurrency(campaign.spend + campaign.vat)}</td>
+                          <td className={cn('px-4 py-4 text-slate-600', isRtl ? 'text-left' : 'text-right')}>{formatMetric(campaign.ctr, '%')}</td>
+                          <td className="px-4 py-4 text-center">
+                            <span className={cn('inline-flex rounded-full px-3 py-1 text-xs font-semibold', campaign.status === 'Excellent' || campaign.status === 'Good' || campaign.status === 'ممتاز' || campaign.status === 'جيد' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
+                              {campaign.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </ExportPage>
+            </React.Fragment>
+          ))}
+
+          <ExportPage
+            title={t.audit}
+            subtitle={isRtl ? 'خلاصة تنفيذية سريعة لأهم نقاط القوة والمخاطر قبل مشاركة التقرير مع الإدارة.' : 'A concise executive view of strengths and risks before sharing the report with stakeholders.'}
+            reportDate={t.reportDate}
+            pageNumber={auditPageNumber}
+            totalPages={totalPdfPages}
+            isRtl={isRtl}
+            footer={t.footer}
+          >
+            <div className="flex h-full flex-col gap-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-6">
+                  <h3 className="text-xl font-bold text-emerald-900">{t.strengths}</h3>
+                  <div className="mt-5 space-y-4">
+                    {strengthItems.map((item, index) => (
+                      <div key={`pdf-strength-${index}`} className="rounded-2xl border border-emerald-200 bg-white px-4 py-4 text-sm leading-6 text-emerald-900">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-rose-200 bg-rose-50 p-6">
+                  <h3 className="text-xl font-bold text-rose-900">{t.weaknesses}</h3>
+                  <div className="mt-5 space-y-4">
+                    {weaknessItems.map((item, index) => (
+                      <div key={`pdf-risk-${index}`} className="rounded-2xl border border-rose-200 bg-white px-4 py-4 text-sm leading-6 text-rose-900">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{t.fundsAdded}</p>
+                  <p className="mt-3 text-2xl font-bold text-slate-900">{formatCurrency(financials.fundsAdded)}</p>
+                </div>
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{t.coverage}</p>
+                  <p className="mt-3 text-2xl font-bold text-slate-900">{formatMetric(financials.coveragePercent, '%')}</p>
+                </div>
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{t.totalProjectSpend}</p>
+                  <p className="mt-3 text-2xl font-bold text-slate-900">{formatCurrency(totalProjectSpend)}</p>
+                </div>
+              </div>
+            </div>
+          </ExportPage>
+        </div>
+      )}
     </div>
   );
 }
