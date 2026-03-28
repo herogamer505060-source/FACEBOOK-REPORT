@@ -200,9 +200,10 @@ const INITIAL_FINANCIAL: FinancialSummary = {
 };
 
 const INITIAL_PROJECTS: ProjectData[] = [
-  { name: 'CAZA MALL', internal: 65999.61, estimated: 63552.81, vat: 8897.39, share: 42.0 },
-  { name: 'Il Centro', internal: 70529.68, estimated: 69403.90, vat: 9716.55, share: 45.0 },
-  { name: 'Il Parco', internal: 25600.75, estimated: 25350.96, vat: 3549.14, share: 13.0 },
+  { name: 'CAZA MALL', internal: 65999.61, estimated: 63552.81, vat: 8897.39, share: 36.8 },
+  { name: 'Il Centro', internal: 70529.68, estimated: 69403.90, vat: 9716.55, share: 40.2 },
+  { name: 'Il Parco', internal: 25600.75, estimated: 25350.96, vat: 3549.14, share: 14.7 },
+  { name: 'Fayoum Expo', internal: 3706.79, estimated: 14351.52, vat: 2009.21, share: 8.3 },
 ];
 
 const INITIAL_OBJECTIVES: ObjectiveData[] = [
