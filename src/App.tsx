@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  LineChart, Line, Legend, PieChart, Pie, Cell 
+  LineChart, Line, Legend, PieChart, Pie, Cell, ComposedChart 
 } from 'recharts';
 import { 
   TrendingUp, TrendingDown, DollarSign, Target, 
@@ -63,10 +63,24 @@ const translations = {
     topupLabel: "Wallet Top-ups",
     internalLabel: "Internal Allocation",
     metaLabel: "Est. Meta Cost",
+    actualLabel: "Actual Spend",
+    totalProjectSpend: "Total Project Spend",
+    reconciliationNote: "Note: Total project spend should match the Meta billed amount.",
     excellent: "Excellent",
     good: "Good",
     fair: "Fair",
-    poor: "Poor"
+    poor: "Poor",
+    actualSpend: "Actual Spend",
+    budgetStatus: "Budget Status",
+    overBudget: "Over Budget",
+    withinBudget: "Within Budget",
+    editBudget: "Edit Budget",
+    save: "Save",
+    vatAmount: "VAT (14%)",
+    vatPerAccount: "VAT per Account",
+    totalWithVat: "Total (incl. VAT)",
+    allProjects: "All Projects",
+    filterByProject: "Filter by Project"
   },
   ar: {
     title: "مالية التسويق",
@@ -111,10 +125,24 @@ const translations = {
     topupLabel: "شحن المحفظة",
     internalLabel: "الميزانية الداخلية",
     metaLabel: "تكلفة ميتا",
+    actualLabel: "الصرف الفعلي",
+    totalProjectSpend: "إجمالي صرف المشاريع",
+    reconciliationNote: "ملاحظة: يجب أن يتطابق إجمالي صرف المشاريع مع مبلغ فاتورة ميتا.",
     excellent: "ممتاز",
     good: "جيد",
     fair: "متوسط",
-    poor: "ضعيف"
+    poor: "ضعيف",
+    actualSpend: "الصرف الفعلي",
+    budgetStatus: "حالة الميزانية",
+    overBudget: "تجاوز الميزانية",
+    withinBudget: "داخل الميزانية",
+    editBudget: "تعديل الميزانية",
+    save: "حفظ",
+    vatAmount: "مبلغ الضريبة (14%)",
+    vatPerAccount: "ضريبة لكل حساب اعلاني",
+    totalWithVat: "الإجمالي (شامل الضريبة)",
+    allProjects: "كل المشاريع",
+    filterByProject: "تصفية حسب المشروع"
   }
 };
 
@@ -133,6 +161,7 @@ interface ProjectData {
   name: string;
   internal: number;
   estimated: number;
+  vat: number;
   share: number;
 }
 
@@ -152,6 +181,7 @@ interface Campaign {
   name: string;
   account: string;
   spend: number;
+  vat: number;
   clicks: number;
   ctr: number;
   cpc: number;
@@ -170,10 +200,9 @@ const INITIAL_FINANCIAL: FinancialSummary = {
 };
 
 const INITIAL_PROJECTS: ProjectData[] = [
-  { name: 'CAZA MALL', internal: 65999.61, estimated: 78334.84, share: 39.8 },
-  { name: 'Il Centro', internal: 70529.68, estimated: 83711.57, share: 42.5 },
-  { name: 'Il Parco', internal: 25600.75, estimated: 30385.49, share: 15.4 },
-  { name: 'Fayoum Expo', internal: 3706.79, estimated: 4399.58, share: 2.2 },
+  { name: 'CAZA MALL', internal: 65999.61, estimated: 63552.81, vat: 8897.39, share: 42.0 },
+  { name: 'Il Centro', internal: 70529.68, estimated: 69403.90, vat: 9716.55, share: 45.0 },
+  { name: 'Il Parco', internal: 25600.75, estimated: 25350.96, vat: 3549.14, share: 13.0 },
 ];
 
 const INITIAL_OBJECTIVES: ObjectiveData[] = [
@@ -198,12 +227,12 @@ const INITIAL_DAILY: DailyData[] = [
 ];
 
 const INITIAL_CAMPAIGNS: Campaign[] = [
-  { name: 'General - Hadeer 31/1', account: 'HIG ADS 1', spend: 26174.91, clicks: 4615, ctr: 1.95, cpc: 5.67, status: 'Good' },
-  { name: 'General - Hadeer 29/1', account: 'HIG ADS 1', spend: 20736.11, clicks: 2400, ctr: 1.58, cpc: 8.64, status: 'Good' },
-  { name: 'Lead Centro 03-02', account: 'HIG ADS 4', spend: 18251.71, clicks: 1252, ctr: 1.37, cpc: 14.58, status: 'Fair' },
-  { name: 'Lead Caza 08-02', account: 'HIG ADS 4', spend: 18072.36, clicks: 3254, ctr: 1.28, cpc: 5.55, status: 'Fair' },
-  { name: 'Lead 01-02', account: 'HIG ADS 4', spend: 17729.48, clicks: 1654, ctr: 1.83, cpc: 10.72, status: 'Good' },
-  { name: 'Engagement Il Centro 1/2', account: 'HIG ADS 1', spend: 979.13, clicks: 1445, ctr: 4.34, cpc: 0.68, status: 'Excellent' },
+  { name: 'General - Hadeer 31/1', account: 'HIG ADS 1', spend: 26174.91, vat: 3664.49, clicks: 4615, ctr: 1.95, cpc: 5.67, status: 'Good' },
+  { name: 'General - Hadeer 29/1', account: 'HIG ADS 1', spend: 20736.11, vat: 2903.06, clicks: 2400, ctr: 1.58, cpc: 8.64, status: 'Good' },
+  { name: 'Lead Centro 03-02', account: 'HIG ADS 4', spend: 18251.71, vat: 2555.24, clicks: 1252, ctr: 1.37, cpc: 14.58, status: 'Fair' },
+  { name: 'Lead Caza 08-02', account: 'HIG ADS 4', spend: 18072.36, vat: 2530.13, clicks: 3254, ctr: 1.28, cpc: 5.55, status: 'Fair' },
+  { name: 'Lead 01-02', account: 'HIG ADS 4', spend: 17729.48, vat: 2482.13, clicks: 1654, ctr: 1.83, cpc: 10.72, status: 'Good' },
+  { name: 'Engagement Il Centro 1/2', account: 'HIG ADS 1', spend: 979.13, vat: 137.08, clicks: 1445, ctr: 4.34, cpc: 0.68, status: 'Excellent' },
 ];
 
 // --- Components ---
@@ -230,7 +259,7 @@ const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }: any
     </div>
     <h3 className="text-slate-500 text-sm font-medium mb-1">{title}</h3>
     <div className="text-2xl font-bold text-slate-900 mb-1">
-      {typeof value === 'number' ? `EGP ${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : value}
+      {typeof value === 'number' ? `EGP ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : value}
     </div>
     <p className="text-slate-400 text-xs">{subtitle}</p>
   </motion.div>
@@ -249,6 +278,7 @@ export default function App() {
   const isRtl = lang === 'ar';
 
   const [activeTab, setActiveTab] = useState('overview');
+  const [selectedProject, setSelectedProject] = useState<string>('all');
   const [financials, setFinancials] = useState<FinancialSummary>(INITIAL_FINANCIAL);
   const [projects, setProjects] = useState<ProjectData[]>(INITIAL_PROJECTS);
   const [objectives, setObjectives] = useState<ObjectiveData[]>(INITIAL_OBJECTIVES);
@@ -256,6 +286,7 @@ export default function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>(INITIAL_CAMPAIGNS);
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isEditingBudget, setIsEditingBudget] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dashboardRef = useRef<HTMLDivElement>(null);
@@ -266,13 +297,22 @@ export default function App() {
     setUploadStatus(isRtl ? "جاري تصدير التقرير..." : "Exporting report...");
 
     try {
-      const canvas = await html2canvas(dashboardRef.current, {
+      // Create a temporary container for PDF rendering to ensure fixed layout
+      const element = dashboardRef.current;
+      const originalStyle = element.style.width;
+      element.style.width = '1200px'; // Fixed width for consistent PDF layout
+
+      const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: '#f8fafc',
+        windowWidth: 1200,
         onclone: (clonedDoc) => {
-          // Force all elements to use safe colors if they might be using oklch/oklab
+          const clonedElement = clonedDoc.getElementById('dashboard-content');
+          if (clonedElement) {
+            clonedElement.style.width = '1200px';
+          }
           const style = clonedDoc.createElement('style');
           style.innerHTML = `
             * { 
@@ -280,34 +320,39 @@ export default function App() {
               outline-color: #e2e8f0 !important;
               ring-color: #3b82f6 !important;
               background-image: none !important;
+              -webkit-print-color-adjust: exact;
             }
+            .no-print { display: none !important; }
+            .chart-container { page-break-inside: avoid; }
           `;
           clonedDoc.head.appendChild(style);
         }
       });
       
+      element.style.width = originalStyle;
+
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgProps = pdf.getImageProperties(imgData);
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      const pdfHeight = pdf.internal.pageSize.getHeight();
       
-      // Handle multi-page if content is too long
-      let heightLeft = pdfHeight;
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
       let position = 0;
-      const pageHeight = pdf.internal.pageSize.getHeight();
 
-      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
-      heightLeft -= pageHeight;
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
 
-      while (heightLeft >= 0) {
-        position = heightLeft - pdfHeight;
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
-        heightLeft -= pageHeight;
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
       }
 
-      pdf.save(`Facebook-Ads-Report-${new Date().toISOString().split('T')[0]}.pdf`);
+      pdf.save(`Marketing-Financial-Report-${new Date().toISOString().split('T')[0]}.pdf`);
       
       setUploadStatus(isRtl ? "تم التصدير بنجاح!" : "Exported successfully!");
       setTimeout(() => setUploadStatus(null), 3000);
@@ -317,6 +362,12 @@ export default function App() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const updateProjectBudget = (index: number, value: string) => {
+    const newProjects = [...projects];
+    newProjects[index].internal = parseFloat(value) || 0;
+    setProjects(newProjects);
   };
 
   const processFileWithGemini = async (content: string, mimeType: string, isText: boolean = false) => {
@@ -333,14 +384,19 @@ export default function App() {
         Return the data in the following JSON format ONLY:
         {
           "financials": { "totalBilled": number, "fundsAdded": number, "netSpend": number, "vat": number, "fundingGap": number, "coveragePercent": number },
-          "projects": [ { "name": string, "internal": number, "estimated": number, "share": number } ],
+          "projects": [ { "name": string, "internal": number, "estimated": number, "vat": number, "share": number } ],
           "objectives": [ { "name": string, "value": number } ],
           "dailyData": [ { "date": string, "billed": number, "topup": number } ],
-          "campaigns": [ { "name": string, "account": string, "spend": number, "clicks": number, "ctr": number, "cpc": number, "status": string } ]
+          "campaigns": [ { "name": string, "account": string, "spend": number, "vat": number, "clicks": number, "ctr": number, "cpc": number, "status": string } ]
         }
         
-        If the data is provided as text, parse it carefully. If it's an image/PDF, analyze the visual tables.
-        Ensure all numbers are parsed correctly.
+        CRITICAL INSTRUCTIONS FOR ACCURACY:
+        1. PRECISION: All currency values MUST be extracted with absolute precision down to the cent (2 decimal places). Do NOT round to the nearest whole number.
+        2. RECONCILIATION: The sum of ("estimated" + "vat") for all "projects" MUST EXACTLY EQUAL "financials.totalBilled". 
+        3. VAT HANDLING: "financials.totalBilled" is the total amount Meta charged (including 14% VAT). Therefore, each project's total (estimated + vat) MUST match its share of the total billed amount.
+        4. PROJECT GROUPING: Identify all project names from the campaign data (e.g., by looking for keywords in campaign names). Group campaigns by these project names. Sum their spends precisely.
+        5. DAILY DATA: Search for daily breakdowns. Use "MM-DD" format. Ensure "billed" matches the daily charges.
+        6. NET vs GROSS: "estimated" in projects is the spend before VAT. "vat" is the 14% tax.
       `;
 
       let response;
@@ -372,7 +428,15 @@ export default function App() {
           color: obj.color || colors[i % colors.length] 
         })));
       }
-      if (result.dailyData) setDailyData(result.dailyData);
+      if (result.dailyData && Array.isArray(result.dailyData)) {
+        const sortedData = [...result.dailyData].sort((a: any, b: any) => {
+          const dateA = new Date(a.date).getTime();
+          const dateB = new Date(b.date).getTime();
+          if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+          return String(a.date).localeCompare(String(b.date));
+        });
+        setDailyData(sortedData);
+      }
       if (result.campaigns) setCampaigns(result.campaigns);
 
       setUploadStatus(isRtl ? "تم تحديث لوحة البيانات بنجاح!" : "Dashboard updated successfully!");
@@ -472,7 +536,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" ref={dashboardRef}>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" ref={dashboardRef} id="dashboard-content">
         {/* Status Notification */}
         <AnimatePresence>
           {uploadStatus && (
@@ -519,60 +583,67 @@ export default function App() {
           {/* Overview Section */}
           {(activeTab === 'overview' || isProcessing) && (
             <section className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard 
-                  title={t.totalBilled} 
-                  value={financials.totalBilled} 
-                  subtitle={t.vatIncluded}
-                  icon={DollarSign}
-                  colorClass="bg-blue-50 text-blue-600"
-                />
-                <StatCard 
-                  title={t.fundsAdded} 
-                  value={financials.fundsAdded} 
-                  subtitle={t.prepaid}
-                  icon={TrendingUp}
-                  colorClass="bg-emerald-50 text-emerald-600"
-                />
-                <StatCard 
-                  title={t.fundingGap} 
-                  value={financials.fundingGap} 
-                  subtitle={t.uncovered}
-                  icon={AlertCircle}
-                  colorClass="bg-rose-50 text-rose-600"
-                />
-                <StatCard 
-                  title={t.coverage} 
-                  value={`${financials.coveragePercent}%`} 
-                  subtitle={t.ratio}
-                  icon={Info}
-                  colorClass="bg-slate-100 text-slate-600"
-                />
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <StatCard 
+              title={t.totalBilled} 
+              value={financials.totalBilled} 
+              subtitle={t.vatIncluded}
+              icon={DollarSign}
+              colorClass="bg-blue-50 text-blue-600"
+            />
+            <StatCard 
+              title={t.vatAmount} 
+              value={financials.vat} 
+              subtitle={isRtl ? "ضريبة القيمة المضافة" : "Value Added Tax"}
+              icon={DollarSign}
+              colorClass="bg-slate-50 text-slate-600"
+            />
+            <StatCard 
+              title={t.fundsAdded} 
+              value={financials.fundsAdded} 
+              subtitle={t.prepaid}
+              icon={TrendingUp}
+              colorClass="bg-emerald-50 text-emerald-600"
+            />
+            <StatCard 
+              title={t.fundingGap} 
+              value={financials.fundingGap} 
+              subtitle={t.uncovered}
+              icon={AlertCircle}
+              colorClass="bg-rose-50 text-rose-600"
+            />
+          </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                   <SectionHeader title={t.dailyMovement} subtitle={t.billedVsTopup} />
                   <div className="h-[350px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={dailyData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} orientation={isRtl ? "right" : "left"} />
-                        <Tooltip 
-                          contentStyle={{ 
-                            borderRadius: '12px', 
-                            border: 'none', 
-                            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
-                            backgroundColor: '#ffffff',
-                            color: '#0f172a'
-                          }}
-                        />
-                        <Legend verticalAlign="top" align={isRtl ? "left" : "right"} iconType="circle" wrapperStyle={{ paddingBottom: '20px' }} />
-                        <Bar name={t.billedLabel} dataKey="billed" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                        <Line name={t.topupLabel} type="monotone" dataKey="topup" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {dailyData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={dailyData} margin={{ top: 10, right: isRtl ? 40 : 10, left: isRtl ? 10 : 40, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} interval={0} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} orientation={isRtl ? "right" : "left"} />
+                          <Tooltip 
+                            contentStyle={{ 
+                              borderRadius: '12px', 
+                              border: 'none', 
+                              boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                              backgroundColor: '#ffffff',
+                              color: '#0f172a'
+                            }}
+                          />
+                          <Legend verticalAlign="top" align={isRtl ? "left" : "right"} iconType="circle" wrapperStyle={{ paddingBottom: '20px' }} />
+                          <Bar name={t.billedLabel} dataKey="billed" fill="#3b82f6" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                          <Line name={t.topupLabel} type="monotone" dataKey="topup" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} isAnimationActive={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+                        <FileText className="w-8 h-8 opacity-20" />
+                        <p className="text-sm">{isRtl ? "لا توجد بيانات يومية متاحة" : "No daily data available"}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -612,14 +683,96 @@ export default function App() {
             </section>
           )}
 
-          {/* Projects Section */}
           {(activeTab === 'projects' || isProcessing) && (
             <section className="space-y-8">
-              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                <SectionHeader title={t.projectAllocation} subtitle={t.internalVsMeta} />
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-slate-400" />
+                  <span className="text-sm font-medium text-slate-600">{t.filterByProject}:</span>
+                </div>
+                <select 
+                  value={selectedProject}
+                  onChange={(e) => setSelectedProject(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full sm:w-64 p-2.5 outline-none transition-all"
+                >
+                  <option value="all">{t.allProjects}</option>
+                  {projects.map(p => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={cn(
+                "flex flex-col md:flex-row gap-4 justify-between items-start md:items-center p-4 rounded-xl border transition-colors",
+                Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) < 0.05 
+                  ? "bg-emerald-50 border-emerald-100" 
+                  : "bg-amber-50 border-amber-100"
+              )}>
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "p-2 rounded-lg",
+                    Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) < 0.05 
+                      ? "bg-emerald-600" 
+                      : "bg-amber-600"
+                  )}>
+                    <FileText className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className={cn(
+                      "text-xs font-bold uppercase",
+                      Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) < 0.05 
+                        ? "text-emerald-600" 
+                        : "text-amber-600"
+                    )}>{t.totalProjectSpend}</p>
+                    <p className={cn(
+                      "text-xl font-bold",
+                      Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) < 0.05 
+                        ? "text-emerald-900" 
+                        : "text-amber-900"
+                    )}>
+                      EGP {projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <p className={cn(
+                    "text-xs font-bold flex items-center gap-1",
+                    Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) < 0.05 
+                      ? "text-emerald-700" 
+                      : "text-amber-700"
+                  )}>
+                    {Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) < 0.05 
+                      ? (isRtl ? "متطابق مع فاتورة ميتا" : "Matches Meta Billing")
+                      : (isRtl ? "يوجد فرق في المصاريف" : "Spending Discrepancy")}
+                    {Math.abs(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled) >= 0.05 && (
+                      <span className="text-[10px] opacity-70">
+                        ({(projects.reduce((acc, p) => acc + (p.estimated + p.vat), 0) - financials.totalBilled).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-500 italic max-w-md">
+                    {t.reconciliationNote}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm chart-container">
+                <div className="flex justify-between items-center mb-6">
+                  <SectionHeader title={t.projectAllocation} subtitle={t.internalVsMeta} />
+                  <button
+                    onClick={() => setIsEditingBudget(!isEditingBudget)}
+                    className="no-print flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+                  >
+                    {isEditingBudget ? t.save : t.editBudget}
+                  </button>
+                </div>
                 <div className="h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={projects} layout="vertical" margin={{ left: isRtl ? 0 : 40, right: isRtl ? 40 : 0 }}>
+                    <BarChart 
+                      data={selectedProject === 'all' ? projects : projects.filter(p => p.name === selectedProject)} 
+                      layout="vertical" 
+                      margin={{ left: isRtl ? 0 : 40, right: isRtl ? 40 : 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                       <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
                       <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} orientation={isRtl ? "right" : "left"} />
@@ -635,34 +788,59 @@ export default function App() {
                       <Legend />
                       <Bar name={t.internalLabel} dataKey="internal" fill="#94a3b8" radius={[0, 4, 4, 0]} />
                       <Bar name={t.metaLabel} dataKey="estimated" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                      <Bar name={t.vatAmount} dataKey="vat" fill="#f59e0b" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden chart-container">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-100">
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-right" : "text-left")}>{t.projectName}</th>
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.internalBudget}</th>
-                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.share}</th>
-                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.estMetaCost}</th>
+                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.metaLabel}</th>
+                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.vatAmount}</th>
+                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.totalWithVat}</th>
+                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.budgetStatus}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {projects.map((project) => (
-                      <tr key={project.name} className="hover:bg-[rgba(248,250,252,0.5)] transition-colors">
-                        <td className={cn("px-6 py-4 font-medium text-slate-900", isRtl ? "text-right" : "text-left")}>{project.name}</td>
-                        <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>EGP {project.internal.toLocaleString()}</td>
-                        <td className={cn("px-6 py-4", isRtl ? "text-left" : "text-right")}>
-                          <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
-                            {project.share}%
-                          </span>
-                        </td>
-                        <td className={cn("px-6 py-4 font-semibold text-slate-900", isRtl ? "text-left" : "text-right")}>EGP {project.estimated.toLocaleString()}</td>
-                      </tr>
-                    ))}
+                    {(selectedProject === 'all' ? projects : projects.filter(p => p.name === selectedProject)).map((project, idx) => {
+                      const totalActual = project.estimated + project.vat;
+                      const variance = project.internal - totalActual;
+                      const isOver = variance < 0;
+                      return (
+                        <tr key={project.name} className="hover:bg-[rgba(248,250,252,0.5)] transition-colors">
+                          <td className={cn("px-6 py-4 font-medium text-slate-900", isRtl ? "text-right" : "text-left")}>{project.name}</td>
+                          <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>
+                            {isEditingBudget ? (
+                              <input
+                                type="number"
+                                value={project.internal}
+                                onChange={(e) => updateProjectBudget(idx, e.target.value)}
+                                className="w-24 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            ) : (
+                              `EGP ${project.internal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            )}
+                          </td>
+                          <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>EGP {project.estimated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>EGP {project.vat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className={cn("px-6 py-4 font-semibold text-slate-900", isRtl ? "text-left" : "text-right")}>EGP {totalActual.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className={cn("px-6 py-4", isRtl ? "text-left" : "text-right")}>
+                            <span className={cn(
+                              "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold",
+                              isOver ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
+                            )}>
+                              {isOver ? t.overBudget : t.withinBudget}
+                              <span className="mx-1 opacity-70">({Math.abs(variance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -672,9 +850,31 @@ export default function App() {
           {/* Performance Section */}
           {(activeTab === 'performance' || isProcessing) && (
             <section className="space-y-8">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-slate-400" />
+                  <span className="text-sm font-medium text-slate-600">{t.filterByProject}:</span>
+                </div>
+                <select 
+                  value={selectedProject}
+                  onChange={(e) => setSelectedProject(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full sm:w-64 p-2.5 outline-none transition-all"
+                >
+                  <option value="all">{t.allProjects}</option>
+                  {projects.map(p => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-100">
+                <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <h3 className="font-bold text-lg">{t.campaignAudit}</h3>
+                  <p className="text-xs text-slate-500 italic max-w-md">
+                    {isRtl 
+                      ? "* الإجمالي (شامل الضريبة) يمثل إجمالي الفاتورة (الصافي + الضريبة)، بينما تكلفة ميتا هي تكلفة الوسائط فقط قبل الضرائب."
+                      : "* Total (incl. VAT) represents the total billed amount (Net + VAT), whereas Meta Cost is the media cost before taxes."}
+                  </p>
                 </div>
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -682,19 +882,25 @@ export default function App() {
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-right" : "text-left")}>{t.campaign}</th>
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-right" : "text-left")}>{t.account}</th>
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.spend}</th>
+                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.vatPerAccount}</th>
+                      <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.totalWithVat}</th>
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.ctr}</th>
                       <th className={cn("px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider", isRtl ? "text-left" : "text-right")}>{t.cpc}</th>
                       <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">{t.status}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {campaigns.map((camp) => (
+                    {campaigns
+                      .filter(camp => selectedProject === 'all' || camp.name.toLowerCase().includes(selectedProject.toLowerCase()))
+                      .map((camp) => (
                       <tr key={camp.name} className="hover:bg-[rgba(248,250,252,0.5)] transition-colors">
                         <td className={cn("px-6 py-4 font-medium text-slate-900", isRtl ? "text-right" : "text-left")}>{camp.name}</td>
                         <td className={cn("px-6 py-4 text-slate-500 text-sm", isRtl ? "text-right" : "text-left")}>{camp.account}</td>
-                        <td className={cn("px-6 py-4 font-semibold", isRtl ? "text-left" : "text-right")}>EGP {camp.spend.toLocaleString()}</td>
+                        <td className={cn("px-6 py-4 font-semibold", isRtl ? "text-left" : "text-right")}>EGP {camp.spend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>EGP {(camp.vat || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className={cn("px-6 py-4 font-bold text-blue-700", isRtl ? "text-left" : "text-right")}>EGP {(camp.spend + (camp.vat || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>{camp.ctr}%</td>
-                        <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>EGP {camp.cpc}</td>
+                        <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>EGP {camp.cpc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td className="px-6 py-4 text-center">
                           <span className={cn(
                             "px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider",
@@ -736,7 +942,7 @@ export default function App() {
                 <SectionHeader title={t.weaknesses} />
                 <div className="space-y-4">
                   {[
-                    isRtl ? `فجوة التمويل: EGP ${financials.fundingGap.toLocaleString()} من الفواتير الحالية غير مغطاة بأموال المحفظة.` : `Funding Gap: EGP ${financials.fundingGap.toLocaleString()} of current billing is not covered by wallet funds.`,
+                    isRtl ? `فجوة التمويل: EGP ${financials.fundingGap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} من الفواتير الحالية غير مغطاة بأموال المحفظة.` : `Funding Gap: EGP ${financials.fundingGap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of current billing is not covered by wallet funds.`,
                     isRtl ? "فجوات البيانات: نقص بيانات ROAS/CPL يمنع التقييم الكامل للعائد." : "Data Gaps: Missing ROAS/CPL data prevents full ROI assessment.",
                     isRtl ? "إجهاد إبداعي: تظهر بعض حملات الوعي علامات انخفاض في التفاعل." : "Creative Fatigue: Some awareness campaigns showing signs of low interaction.",
                     isRtl ? "اختلاف التقارير: تباين محتمل بين تقارير الميزانية والصادرات." : "Reporting Discrepancy: Potential variance between budget reports and exports."
