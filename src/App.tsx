@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   LineChart, Line, Legend, PieChart, Pie, Cell, ComposedChart 
@@ -12,8 +12,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/src/lib/utils';
+import {
+  OBJECTIVE_COLORS,
+  inferProjectFromName,
+  sortDailyData,
+  type Campaign,
+  type DailyData,
+  type FinancialSummary,
+  type ObjectiveData,
+  type ProjectData,
+  type ReportAnalysisResult,
+} from '@/src/lib/report-data';
 import * as XLSX from 'xlsx';
-import { GoogleGenAI, Type } from "@google/genai";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -146,48 +156,6 @@ const translations = {
   }
 };
 
-// --- Types ---
-
-interface FinancialSummary {
-  totalBilled: number;
-  fundsAdded: number;
-  netSpend: number;
-  vat: number;
-  fundingGap: number;
-  coveragePercent: number;
-}
-
-interface ProjectData {
-  name: string;
-  internal: number;
-  estimated: number;
-  vat: number;
-  share: number;
-}
-
-interface ObjectiveData {
-  name: string;
-  value: number;
-  color: string;
-}
-
-interface DailyData {
-  date: string;
-  billed: number;
-  topup: number;
-}
-
-interface Campaign {
-  name: string;
-  account: string;
-  spend: number;
-  vat: number;
-  clicks: number;
-  ctr: number;
-  cpc: number;
-  status: string;
-}
-
 // --- Initial Mock Data ---
 
 const INITIAL_FINANCIAL: FinancialSummary = {
@@ -228,12 +196,12 @@ const INITIAL_DAILY: DailyData[] = [
 ];
 
 const INITIAL_CAMPAIGNS: Campaign[] = [
-  { name: 'General - Hadeer 31/1', account: 'HIG ADS 1', spend: 26174.91, vat: 3664.49, clicks: 4615, ctr: 1.95, cpc: 5.67, status: 'Good' },
-  { name: 'General - Hadeer 29/1', account: 'HIG ADS 1', spend: 20736.11, vat: 2903.06, clicks: 2400, ctr: 1.58, cpc: 8.64, status: 'Good' },
-  { name: 'Lead Centro 03-02', account: 'HIG ADS 4', spend: 18251.71, vat: 2555.24, clicks: 1252, ctr: 1.37, cpc: 14.58, status: 'Fair' },
-  { name: 'Lead Caza 08-02', account: 'HIG ADS 4', spend: 18072.36, vat: 2530.13, clicks: 3254, ctr: 1.28, cpc: 5.55, status: 'Fair' },
-  { name: 'Lead 01-02', account: 'HIG ADS 4', spend: 17729.48, vat: 2482.13, clicks: 1654, ctr: 1.83, cpc: 10.72, status: 'Good' },
-  { name: 'Engagement Il Centro 1/2', account: 'HIG ADS 1', spend: 979.13, vat: 137.08, clicks: 1445, ctr: 4.34, cpc: 0.68, status: 'Excellent' },
+  { name: 'General - Hadeer 31/1', project: 'CAZA MALL', account: 'HIG ADS 1', spend: 26174.91, vat: 3664.49, clicks: 4615, ctr: 1.95, cpc: 5.67, status: 'Good' },
+  { name: 'General - Hadeer 29/1', project: 'CAZA MALL', account: 'HIG ADS 1', spend: 20736.11, vat: 2903.06, clicks: 2400, ctr: 1.58, cpc: 8.64, status: 'Good' },
+  { name: 'Lead Centro 03-02', project: 'Il Centro', account: 'HIG ADS 4', spend: 18251.71, vat: 2555.24, clicks: 1252, ctr: 1.37, cpc: 14.58, status: 'Fair' },
+  { name: 'Lead Caza 08-02', project: 'CAZA MALL', account: 'HIG ADS 4', spend: 18072.36, vat: 2530.13, clicks: 3254, ctr: 1.28, cpc: 5.55, status: 'Fair' },
+  { name: 'Lead 01-02', project: 'Il Parco', account: 'HIG ADS 4', spend: 17729.48, vat: 2482.13, clicks: 1654, ctr: 1.83, cpc: 10.72, status: 'Good' },
+  { name: 'Engagement Il Centro 1/2', project: 'Il Centro', account: 'HIG ADS 1', spend: 979.13, vat: 137.08, clicks: 1445, ctr: 4.34, cpc: 0.68, status: 'Excellent' },
 ];
 
 // --- Components ---
@@ -273,6 +241,15 @@ const SectionHeader = ({ title, subtitle }: { title: string, subtitle?: string }
   </div>
 );
 
+const AI_ANALYZE_ENDPOINT = '/api/analyze-report';
+const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+
+const getCampaignProjectName = (campaign: Campaign, projectNames: string[]) => {
+  return campaign.project || inferProjectFromName(campaign.name, projectNames) || '';
+};
+
+const isErrorMessage = (message: string) => /error|unable|missing|invalid|failed|خطأ/i.test(message);
+
 export default function App() {
   const [lang, setLang] = useState<'en' | 'ar'>('ar');
   const t = translations[lang];
@@ -291,6 +268,25 @@ export default function App() {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dashboardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedProject !== 'all' && !projects.some((project) => project.name === selectedProject)) {
+      setSelectedProject('all');
+    }
+  }, [projects, selectedProject]);
+
+  const visibleProjects = selectedProject === 'all'
+    ? projects
+    : projects.filter((project) => project.name === selectedProject);
+
+  const projectNames = projects.map((project) => project.name);
+  const visibleCampaigns = campaigns.filter((campaign) => {
+    if (selectedProject === 'all') {
+      return true;
+    }
+
+    return getCampaignProjectName(campaign, projectNames) === selectedProject;
+  });
 
   const handleExportPDF = async () => {
     if (!dashboardRef.current) return;
@@ -365,86 +361,55 @@ export default function App() {
     }
   };
 
-  const updateProjectBudget = (index: number, value: string) => {
-    const newProjects = [...projects];
-    newProjects[index].internal = parseFloat(value) || 0;
-    setProjects(newProjects);
+  const updateProjectBudget = (projectName: string, value: string) => {
+    setProjects((currentProjects) => currentProjects.map((project) => (
+      project.name === projectName
+        ? { ...project, internal: parseFloat(value) || 0 }
+        : project
+    )));
   };
 
-  const processFileWithGemini = async (content: string, mimeType: string, isText: boolean = false) => {
+  const processFileWithAI = async (content: string, mimeType: string, isText: boolean = false) => {
     setIsProcessing(true);
     setUploadStatus(isRtl ? "جاري تحليل البيانات بالذكاء الاصطناعي..." : "Analyzing data with AI...");
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      
-      const prompt = `
-        You are a Marketing Finance Expert. I am providing you with data extracted from a Facebook Ads report (${mimeType}).
-        Extract the following structured data from it. 
-        
-        Return the data in the following JSON format ONLY:
-        {
-          "financials": { "totalBilled": number, "fundsAdded": number, "netSpend": number, "vat": number, "fundingGap": number, "coveragePercent": number },
-          "projects": [ { "name": string, "internal": number, "estimated": number, "vat": number, "share": number } ],
-          "objectives": [ { "name": string, "value": number } ],
-          "dailyData": [ { "date": string, "billed": number, "topup": number } ],
-          "campaigns": [ { "name": string, "account": string, "spend": number, "vat": number, "clicks": number, "ctr": number, "cpc": number, "status": string } ]
-        }
-        
-        CRITICAL INSTRUCTIONS FOR ACCURACY:
-        1. PRECISION: All currency values MUST be extracted with absolute precision down to the cent (2 decimal places). Do NOT round to the nearest whole number.
-        2. RECONCILIATION: The sum of ("estimated" + "vat") for all "projects" MUST EXACTLY EQUAL "financials.totalBilled". 
-        3. VAT HANDLING: "financials.totalBilled" is the total amount Meta charged (including 14% VAT). Therefore, each project's total (estimated + vat) MUST match its share of the total billed amount.
-        4. PROJECT GROUPING: Identify all project names from the campaign data (e.g., by looking for keywords in campaign names). Group campaigns by these project names. Sum their spends precisely.
-        5. DAILY DATA: Search for daily breakdowns. Use "MM-DD" format. Ensure "billed" matches the daily charges.
-        6. NET vs GROSS: "estimated" in projects is the spend before VAT. "vat" is the 14% tax.
-      `;
+      const response = await fetch(AI_ANALYZE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content, mimeType, isText }),
+      });
 
-      let response;
-      if (isText) {
-        response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: [{ parts: [{ text: prompt + "\n\nData Content:\n" + content }] }],
-          config: { responseMimeType: "application/json" }
-        });
-      } else {
-        response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: [
-            { parts: [{ text: prompt }] },
-            { parts: [{ inlineData: { data: content, mimeType: mimeType } }] }
-          ],
-          config: { responseMimeType: "application/json" }
-        });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const message = typeof payload?.error === 'string'
+          ? payload.error
+          : isRtl
+            ? 'تعذر تحليل التقرير حالياً.'
+            : 'Unable to analyze the report right now.';
+
+        throw new Error(message);
       }
 
-      const result = JSON.parse(response.text || "{}");
-      
-      if (result.financials) setFinancials(result.financials);
-      if (result.projects) setProjects(result.projects);
-      if (result.objectives) {
-        const colors = ['#0ea5e9', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899'];
-        setObjectives(result.objectives.map((obj: any, i: number) => ({ 
-          ...obj, 
-          color: obj.color || colors[i % colors.length] 
-        })));
-      }
-      if (result.dailyData && Array.isArray(result.dailyData)) {
-        const sortedData = [...result.dailyData].sort((a: any, b: any) => {
-          const dateA = new Date(a.date).getTime();
-          const dateB = new Date(b.date).getTime();
-          if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
-          return String(a.date).localeCompare(String(b.date));
-        });
-        setDailyData(sortedData);
-      }
-      if (result.campaigns) setCampaigns(result.campaigns);
+      const result = payload as ReportAnalysisResult;
+
+      setFinancials(result.financials);
+      setProjects(result.projects);
+      setObjectives(result.objectives.map((objective, index) => ({
+        ...objective,
+        color: objective.color || OBJECTIVE_COLORS[index % OBJECTIVE_COLORS.length],
+      })));
+      setDailyData(sortDailyData(result.dailyData));
+      setCampaigns(result.campaigns);
 
       setUploadStatus(isRtl ? "تم تحديث لوحة البيانات بنجاح!" : "Dashboard updated successfully!");
       setTimeout(() => setUploadStatus(null), 3000);
     } catch (error) {
-      console.error("Gemini Error:", error);
-      setUploadStatus(isRtl ? "خطأ في معالجة البيانات" : "Error processing data");
+      console.error('AI analysis error:', error);
+      setUploadStatus(error instanceof Error ? error.message : (isRtl ? "خطأ في معالجة البيانات" : "Error processing data"));
     } finally {
       setIsProcessing(false);
     }
@@ -453,6 +418,14 @@ export default function App() {
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    event.target.value = '';
+
+    if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+      setUploadStatus(isRtl ? 'حجم الملف كبير جداً للتحليل.' : 'The uploaded file is too large to analyze.');
+      setIsProcessing(false);
+      return;
+    }
 
     setIsProcessing(true);
     setUploadStatus(isRtl ? `جاري قراءة ${file.name}...` : `Reading ${file.name}...`);
@@ -468,7 +441,7 @@ export default function App() {
           const worksheet = workbook.Sheets[firstSheetName];
           const json = XLSX.utils.sheet_to_json(worksheet);
           const textContent = JSON.stringify(json, null, 2);
-          await processFileWithGemini(textContent, "text/json", true);
+          await processFileWithAI(textContent, 'application/json', true);
         } catch (err) {
           setUploadStatus(isRtl ? "خطأ في قراءة ملف إكسيل" : "Error reading Excel file.");
           setIsProcessing(false);
@@ -477,8 +450,13 @@ export default function App() {
       reader.readAsArrayBuffer(file);
     } else if (file.type === 'application/pdf') {
       reader.onload = async (e) => {
-        const base64Data = (e.target?.result as string).split(',')[1];
-        await processFileWithGemini(base64Data, file.type, false);
+        try {
+          const base64Data = (e.target?.result as string).split(',')[1];
+          await processFileWithAI(base64Data, file.type, false);
+        } catch (err) {
+          setUploadStatus(isRtl ? "خطأ في قراءة ملف PDF" : "Error reading PDF file.");
+          setIsProcessing(false);
+        }
       };
       reader.readAsDataURL(file);
     } else {
@@ -547,10 +525,10 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className={cn(
                 "mb-6 p-4 rounded-xl flex items-center gap-3 border no-print",
-                uploadStatus.includes("Error") || uploadStatus.includes("خطأ") ? "bg-rose-50 border-rose-100 text-rose-700" : "bg-emerald-50 border-emerald-100 text-emerald-700"
+                isErrorMessage(uploadStatus) ? "bg-rose-50 border-rose-100 text-rose-700" : "bg-emerald-50 border-emerald-100 text-emerald-700"
               )}
             >
-              {uploadStatus.includes("Error") || uploadStatus.includes("خطأ") ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+              {isErrorMessage(uploadStatus) ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
               <span className="text-sm font-medium">{uploadStatus}</span>
             </motion.div>
           )}
@@ -582,7 +560,7 @@ export default function App() {
 
         <div className="space-y-12">
           {/* Overview Section */}
-          {(activeTab === 'overview' || isProcessing) && (
+          {activeTab === 'overview' && (
             <section className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatCard 
@@ -684,7 +662,7 @@ export default function App() {
             </section>
           )}
 
-          {(activeTab === 'projects' || isProcessing) && (
+          {activeTab === 'projects' && (
             <section className="space-y-8">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
                 <div className="flex items-center gap-2">
@@ -770,7 +748,7 @@ export default function App() {
                 <div className="h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart 
-                      data={selectedProject === 'all' ? projects : projects.filter(p => p.name === selectedProject)} 
+                       data={visibleProjects} 
                       layout="vertical" 
                       margin={{ left: isRtl ? 0 : 40, right: isRtl ? 40 : 0 }}
                     >
@@ -808,7 +786,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {(selectedProject === 'all' ? projects : projects.filter(p => p.name === selectedProject)).map((project, idx) => {
+                    {visibleProjects.map((project) => {
                       const totalActual = project.estimated + project.vat;
                       const variance = project.internal - totalActual;
                       const isOver = variance < 0;
@@ -817,12 +795,12 @@ export default function App() {
                           <td className={cn("px-6 py-4 font-medium text-slate-900", isRtl ? "text-right" : "text-left")}>{project.name}</td>
                           <td className={cn("px-6 py-4 text-slate-600", isRtl ? "text-left" : "text-right")}>
                             {isEditingBudget ? (
-                              <input
-                                type="number"
-                                value={project.internal}
-                                onChange={(e) => updateProjectBudget(idx, e.target.value)}
-                                className="w-24 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
+                                <input
+                                  type="number"
+                                  value={project.internal}
+                                  onChange={(e) => updateProjectBudget(project.name, e.target.value)}
+                                  className="w-24 px-2 py-1 text-sm border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
                             ) : (
                               `EGP ${project.internal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                             )}
@@ -849,7 +827,7 @@ export default function App() {
           )}
 
           {/* Performance Section */}
-          {(activeTab === 'performance' || isProcessing) && (
+          {activeTab === 'performance' && (
             <section className="space-y-8">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
                 <div className="flex items-center gap-2">
@@ -891,9 +869,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {campaigns
-                      .filter(camp => selectedProject === 'all' || camp.name.toLowerCase().includes(selectedProject.toLowerCase()))
-                      .map((camp) => (
+                    {visibleCampaigns.map((camp) => (
                       <tr key={camp.name} className="hover:bg-[rgba(248,250,252,0.5)] transition-colors">
                         <td className={cn("px-6 py-4 font-medium text-slate-900", isRtl ? "text-right" : "text-left")}>{camp.name}</td>
                         <td className={cn("px-6 py-4 text-slate-500 text-sm", isRtl ? "text-right" : "text-left")}>{camp.account}</td>
@@ -920,7 +896,7 @@ export default function App() {
           )}
 
           {/* Audit Section */}
-          {(activeTab === 'audit' || isProcessing) && (
+          {activeTab === 'audit' && (
             <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-6">
                 <SectionHeader title={t.strengths} />
