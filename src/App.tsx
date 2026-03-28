@@ -273,19 +273,33 @@ function formatMetric(value: number, suffix = ''): string {
   return `${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}${suffix}`;
 }
 
+function getPdfOverlineClass(isRtl: boolean): string {
+  return cn('text-xs font-semibold', isRtl ? 'leading-6 tracking-normal' : 'uppercase tracking-[0.28em]');
+}
+
+function getPdfLabelClass(isRtl: boolean): string {
+  return cn('text-xs font-semibold text-slate-500', isRtl ? 'leading-6 tracking-normal' : 'uppercase tracking-[0.24em]');
+}
+
+function getPdfTableHeaderClass(isRtl: boolean): string {
+  return cn('text-xs font-semibold text-slate-500', isRtl ? 'leading-6 tracking-normal' : 'uppercase tracking-[0.2em]');
+}
+
 const ExportMetricCard = ({
   label,
   value,
   note,
   toneClass,
+  isRtl,
 }: {
   label: string;
   value: string;
   note: string;
   toneClass: string;
+  isRtl: boolean;
 }) => (
   <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-sm">
-    <div className={cn("inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em]", toneClass)}>
+    <div className={cn('inline-flex rounded-full px-3 py-1', getPdfOverlineClass(isRtl), toneClass)}>
       {label}
     </div>
     <div className="mt-4 text-[31px] font-bold tracking-tight text-slate-900">{value}</div>
@@ -315,10 +329,12 @@ const ExportPage = ({
   <section data-pdf-page="true" className={cn("pdf-page flex flex-col gap-8 bg-white text-slate-900", isRtl ? "font-arabic" : "")} dir={isRtl ? 'rtl' : 'ltr'}>
     <div className="flex items-start justify-between gap-8 border-b border-slate-200 pb-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-blue-600">
+        <p className={cn(getPdfOverlineClass(isRtl), 'text-blue-600')}>
           {isRtl ? 'تصدير التقرير' : 'Report Export'}
         </p>
-        <h1 className="mt-3 text-[36px] font-bold tracking-tight text-slate-900">{title}</h1>
+        <h1 className={cn('mt-3 text-[36px] font-bold text-slate-900', isRtl ? 'leading-[1.35] tracking-normal' : 'tracking-tight')}>
+          {title}
+        </h1>
         <p className="mt-2 max-w-[640px] text-sm leading-6 text-slate-500">{subtitle}</p>
       </div>
 
@@ -1047,10 +1063,10 @@ export default function App() {
           >
             <div className="flex h-full flex-col gap-6">
               <div className="grid grid-cols-2 gap-5">
-                <ExportMetricCard label={t.totalBilled} value={formatCurrency(financials.totalBilled)} note={t.vatIncluded} toneClass="bg-blue-50 text-blue-700" />
-                <ExportMetricCard label={t.fundsAdded} value={formatCurrency(financials.fundsAdded)} note={t.prepaid} toneClass="bg-emerald-50 text-emerald-700" />
-                <ExportMetricCard label={t.actualLabel} value={formatCurrency(financials.netSpend)} note={t.metaLabel} toneClass="bg-slate-100 text-slate-700" />
-                <ExportMetricCard label={t.fundingGap} value={formatCurrency(financials.fundingGap)} note={t.uncovered} toneClass="bg-rose-50 text-rose-700" />
+                <ExportMetricCard label={t.totalBilled} value={formatCurrency(financials.totalBilled)} note={t.vatIncluded} toneClass="bg-blue-50 text-blue-700" isRtl={isRtl} />
+                <ExportMetricCard label={t.fundsAdded} value={formatCurrency(financials.fundsAdded)} note={t.prepaid} toneClass="bg-emerald-50 text-emerald-700" isRtl={isRtl} />
+                <ExportMetricCard label={t.actualLabel} value={formatCurrency(financials.netSpend)} note={t.metaLabel} toneClass="bg-slate-100 text-slate-700" isRtl={isRtl} />
+                <ExportMetricCard label={t.fundingGap} value={formatCurrency(financials.fundingGap)} note={t.uncovered} toneClass="bg-rose-50 text-rose-700" isRtl={isRtl} />
               </div>
 
               <div className="grid flex-1 grid-cols-[1.7fr_1fr] gap-6">
@@ -1094,11 +1110,11 @@ export default function App() {
 
                   <div className="grid grid-cols-1 gap-4 rounded-[28px] border border-slate-200 bg-slate-50 p-5 shadow-sm">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t.vatAmount}</p>
+                      <p className={getPdfLabelClass(isRtl)}>{t.vatAmount}</p>
                       <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(financials.vat)}</p>
                     </div>
                     <div className="border-t border-slate-200 pt-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t.coverage}</p>
+                      <p className={getPdfLabelClass(isRtl)}>{t.coverage}</p>
                       <p className="mt-2 text-2xl font-bold text-slate-900">{formatMetric(financials.coveragePercent, '%')}</p>
                       <p className="mt-2 text-sm text-slate-500">{t.ratio}</p>
                     </div>
@@ -1139,7 +1155,7 @@ export default function App() {
 
                 <div className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-slate-50 p-6 shadow-sm">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t.totalProjectSpend}</p>
+                    <p className={getPdfLabelClass(isRtl)}>{t.totalProjectSpend}</p>
                     <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{formatCurrency(totalProjectSpend)}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
@@ -1163,13 +1179,13 @@ export default function App() {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.projectName}</th>
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.internalBudget}</th>
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.metaLabel}</th>
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.vatAmount}</th>
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.share}</th>
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
-                      <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.budgetStatus}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-right' : 'text-left')}>{t.projectName}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.internalBudget}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.metaLabel}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.vatAmount}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.share}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
+                      <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.budgetStatus}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1220,12 +1236,12 @@ export default function App() {
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.projectName}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.internalBudget}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.metaLabel}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.vatAmount}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.budgetStatus}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-right' : 'text-left')}>{t.projectName}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.internalBudget}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.metaLabel}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.vatAmount}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.budgetStatus}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1276,13 +1292,13 @@ export default function App() {
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.campaign}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.projects}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-right' : 'text-left')}>{t.account}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.spend}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
-                        <th className={cn('px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500', isRtl ? 'text-left' : 'text-right')}>{t.ctr}</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t.status}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-right' : 'text-left')}>{t.campaign}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-right' : 'text-left')}>{t.projects}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-right' : 'text-left')}>{t.account}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.spend}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.totalWithVat}</th>
+                        <th className={cn('px-4 py-3', getPdfTableHeaderClass(isRtl), isRtl ? 'text-left' : 'text-right')}>{t.ctr}</th>
+                        <th className={cn('px-4 py-3 text-center', getPdfTableHeaderClass(isRtl))}>{t.status}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1344,15 +1360,15 @@ export default function App() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{t.fundsAdded}</p>
+                  <p className={getPdfLabelClass(isRtl)}>{t.fundsAdded}</p>
                   <p className="mt-3 text-2xl font-bold text-slate-900">{formatCurrency(financials.fundsAdded)}</p>
                 </div>
                 <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{t.coverage}</p>
+                  <p className={getPdfLabelClass(isRtl)}>{t.coverage}</p>
                   <p className="mt-3 text-2xl font-bold text-slate-900">{formatMetric(financials.coveragePercent, '%')}</p>
                 </div>
                 <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{t.totalProjectSpend}</p>
+                  <p className={getPdfLabelClass(isRtl)}>{t.totalProjectSpend}</p>
                   <p className="mt-3 text-2xl font-bold text-slate-900">{formatCurrency(totalProjectSpend)}</p>
                 </div>
               </div>
